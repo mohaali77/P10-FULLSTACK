@@ -41,6 +41,7 @@ jobs:
 
       # Lance l'analyse SonarCloud (utilise le rapport JaCoCo généré par les tests)
       - name: Run SonarCloud analysis (backend)
+        working-directory: back
         run: |
           mvn -B -q sonar:sonar \
             -Dsonar.organization=${{ secrets.SONAR_ORG }} \
@@ -83,6 +84,8 @@ jobs:
 
       # Lance l'analyse SonarCloud (front)
       - name: Run SonarCloud analysis (frontend)
+        working-directory: front
+
         run: |
           sonar-scanner \
             -Dsonar.organization=${{ secrets.SONAR_ORG }} \
