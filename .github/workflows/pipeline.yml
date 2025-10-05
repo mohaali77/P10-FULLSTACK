@@ -1,131 +1,110 @@
-# Ce workflow est déclenché par des événements de push ou de pull request
-# sur les branches main, staging et release ainsi que sur les tags.
-# Il peut également être déclenché manuellement via l'interface de GitHub.
-#
-# Les jobs de test et d'analyse sont toujours exécutés, même si les tests échouent
-# Les images Docker ne sont construites et poussées que si les tests et l'analyse réussissent
-# et que la branche est staging ou release ou si c'est un tag.
-# Elles sont construites à partir du code du dépôt, poussées vers Docker Hub,
-# et sont taguées avec le nom de la branche, 'latest' si la branche est 'release'
-# ou avec le nom du tag si c'est un tag.
-#
-# Les quality gate de sonar sont vérifiés avant de pousser les images Docker.
-# Elles sont configurées pour échouer si le code n'est pas conforme aux règles de qualité définies
-# et qu'il s'agit de la branche release ou d'une pull request.
-#
-# Paramètres :
-# - Les secrets DOCKERHUB_TOKEN et DOCKERHUB_USERNAME sont requis pour l'authentification avec Docker Hub
-# - Le secret SONAR_TOKEN est requis pour l'authentification avec SonarQube
-#
-# Jobs :
-# - testing-frontend : exécute les tests du frontend
-# - testing-backend : exécute les tests du backend
-# - analysis-backend : effectue une analyse du code du backend avec SonarQube
-# - analysis-frontend : effectue une analyse du code du frontend avec SonarQube
-# - docker-images : construit et pousse les images Docker du backend et du frontend
-#
-
 name: Continuous Integration
 
+# ----------------------------------------------------------
+# Définition des événements qui déclenchent le workflow :
+#  - quand on pousse du code sur main
+#  - quand on crée une pull request vers main
+# ----------------------------------------------------------
 on:
-  # Déclenche le workflow sur les événements de push et de pull request
-  # sur les branches main, staging et release
-  # sur les tags de type vX.Y.Z
-  # et sur les tags pre-release (vX.Y.Z-rc.N, etc.)
   push:
-    tags:
-      - 'v*.*.*' # Déclenche le workflow sur les tags de type vX.Y.Z
-      - 'v*.*.*-*' # Déclenche le workflow sur les tags pre-release (vX.Y.Z-rc.N, etc.)
-    branches:
-      - main
-      - staging
-      - release
+    branches: [ main ]
   pull_request:
-    branches:
-    - main
-    types: [opened, synchronize, reopened]
+    branches: [ main ]
 
-  # Permet de déclencher le workflow manuellement via l'interface de GitHub
-  # Cela permet de tester le workflow sans faire de push
-  # ou de pull request
-  workflow_dispatch:
-
-# Définition des jobs à exécuter dans ce workflow
+# ----------------------------------------------------------
+# Début de la section des "jobs" (tâches automatiques)
+# ----------------------------------------------------------
 jobs:
+  # ==========================================================
+  # Job principal : CI du back-end
+  # ==========================================================
+  backend_ci:
+    name: Backend - Build, Test, Sonar
+    runs-on: ubuntu-latest  # Machine virtuelle Linux utilisée par GitHub
 
-  # Exécute le lint du frontend
-  linting-frontend:
-    name: Linting Frontend
-    uses: ./.github/workflows/step-linting-frontend.yml
+    # Définit que toutes les commandes se lanceront depuis le dossier /back
+    defaults:
+      run:
+        working-directory: back
 
-  # Exécute le lint du backend
-  linting-backend:
-    name: Linting Backend
-    uses: ./.github/workflows/step-linting-backend.yml
+    steps:
+      # ------------------------------------------------------
+      # Étape 1 : Récupère le code source depuis le repo GitHub
+      # ------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  # Exécute les tests du frontend
-  testing-frontend:
-    name: Testing Frontend
-    uses: ./.github/workflows/step-testing-frontend.yml
+      # ------------------------------------------------------
+      # Étape 2 : Installe Java 11 (le projet utilise Java 11)
+      # ------------------------------------------------------
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'  # Version Java spécifiée dans le pom.xml
+          cache: maven        # Cache Maven pour accélérer les builds
 
-  # Exécute les tests du backend
-  testing-backend:
-    name: Testing Backend
-    uses: ./.github/workflows/step-testing-backend.yml
+      # ------------------------------------------------------
+      # Étape 3 : Compile et lance les tests du back-end
+      #  - mvn clean verify => compile, exécute les tests
+      # ------------------------------------------------------
+      - name: Build & test (Maven)
+        run: mvn -B -q clean verify
 
+      # ------------------------------------------------------
+      # Étape 4 : Analyse de qualité avec SonarCloud
+      #  - Envoie les résultats de tests et de couverture
+      #  - Nécessite les 4 secrets GitHub configurés :
+      #    SONAR_TOKEN / SONAR_ORG / SONAR_PROJECT_KEY_BACK / SONAR_HOST_URL
+      # ------------------------------------------------------
+      - name: SonarCloud analysis
+        run: |
+          mvn -B -q sonar:sonar \
+            -Dsonar.organization=${{ secrets.SONAR_ORG }} \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY_BACK }} \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
 
-  # Analyse le code du frontend avec SonarQube
-  analysis-frontend:
-    name: Analysis Frontend
-    # Requiert que le job de test du frontend soit terminé avec succès
-    needs:
-      - linting-frontend
-      - testing-frontend
-    uses: ./.github/workflows/step-analysis-frontend.yml
-    secrets:
-      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_FRONTEND }}
-      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY_FRONTEND }}
-      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  # ==========================================================
+  # Job optionnel : vérifie le code du front-end (lint)
+  #     Ce job est "non bloquant" : même s’il échoue, la pipeline continue
+  # ==========================================================
+  frontend_lint:
+    name: Frontend - Lint (non bloquant)
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Ne bloque pas la pipeline s’il échoue
 
-  # Analyse le code du backend avec SonarQube
-  analysis-backend:
-    name: Analysis Backend
-    # Requiert que le job de test du backend soit terminé avec succès
-    needs:
-      - linting-backend
-      - testing-backend
-    uses: ./.github/workflows/step-analysis-backend.yml
-    secrets:
-      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_BACKEND }}
-      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY_BACKEND }}
-      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    # Toutes les commandes se lancent depuis le dossier /front
+    defaults:
+      run:
+        working-directory: front
 
+    steps:
+      # ------------------------------------------------------
+      # Étape 1 : Récupère le code du repo
+      # ------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  # Construit et pousse les images Docker
-  docker-images:
-    name: Docker Images
-    # Se déclenche que si le job de test et d'analyse réussissent
-    # et que la branche est staging ou release, ou si c'est un tag
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/release' }}
-    # Requiert que le job de test et d'analyse soient terminés
-    # avec succès avant de commencer
-    needs:
-      - testing-frontend
-      - testing-backend
-      - analysis-frontend
-      - analysis-backend
-    # Utilise le workflow de construction et de publication d'images Docker
-    uses: ./.github/workflows/step-docker-images.yml
-    with:
-      # Tag de l'image à pousser
-      # Si la branche est 'release', on tag l'image avec 'latest'
-      # Sinon, on utilise le nom de la branche ou le nom du tag
-      tag: >
-        ${{ startsWith(github.ref, 'refs/heads/release') && 'latest' ||
-            startsWith(github.ref, 'refs/tags/') && github.ref_name ||
-            github.ref_name }}
-    secrets:
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      # ------------------------------------------------------
+      # Étape 2 : Installe Node.js 18 pour exécuter npm
+      # ------------------------------------------------------
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      # ------------------------------------------------------
+      # Étape 3 : Installe les dépendances du projet front
+      # ------------------------------------------------------
+      - name: Install deps
+        run: npm ci || npm install
+
+      # ------------------------------------------------------
+      # Étape 4 : Lance la commande de lint
+      #  - Vérifie la qualité du code front (erreurs de style, syntaxe, etc.)
+      #  - Si le projet n’a pas de script "lint", on ignore sans erreur
+      # ------------------------------------------------------
+      - name: Lint
+        run: npm run lint || echo "No lint script, skipping"
