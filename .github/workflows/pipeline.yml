@@ -16,11 +16,15 @@ on:
 # ----------------------------------------------------------
 jobs:
   # ==========================================================
-  # Job principal : CI du back-end
+  # CI du back-end
   # ==========================================================
   backend_ci:
     name: Backend - Build, Test, Sonar
     runs-on: ubuntu-latest  # Machine virtuelle Linux utilisée par GitHub
+
+    # Expose l'URL du rapport "Checks" (utile si on veut l'afficher dans un autre job)
+    outputs:
+      back-report-url: ${{ steps.test-report-backend.outputs.runHtmlUrl }}
 
     # Définit que toutes les commandes se lanceront depuis le dossier /back
     defaults:
@@ -52,10 +56,57 @@ jobs:
         run: mvn -B -q clean verify
 
       # ------------------------------------------------------
+      # (AJOUT) Étape 3.1 : Uploader les rapports de tests Surefire (unitaires)
+      #  - Permet de consulter les rapports dans l'onglet "Actions", même si le job échoue
+      # ------------------------------------------------------
+      - name: Upload Surefire reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: back/target/surefire-reports/
+
+      # ------------------------------------------------------
+      # (AJOUT) Étape 3.2 : Uploader les rapports Failsafe (tests d'intégration)
+      #  - Ignore l'étape si aucun rapport (ex : pas de tests d'intégration)
+      # ------------------------------------------------------
+      - name: Upload Failsafe reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports
+          path: back/target/failsafe-reports/
+          if-no-files-found: ignore
+
+      # ------------------------------------------------------
+      # (AJOUT) Étape 3.3 : Uploader le rapport de couverture JaCoCo (HTML)
+      #  - Pratique pour ouvrir le détail de la couverture dans le navigateur
+      # ------------------------------------------------------
+      - name: Upload JaCoCo HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: back/target/site/jacoco
+
+      # ------------------------------------------------------
+      # (AJOUT) Étape 3.4 : Générer un rapport de tests "lisible" dans l'onglet Checks
+      #  - Parse les XML JUnit (Surefire/Failsafe) et fournit une URL (output)
+      #  - S'exécute même si les tests échouent, pour pouvoir consulter le rapport
+      #  - Option : on peut éviter de le lancer sur main si souhaité
+      # ------------------------------------------------------
+      - name: Generate GitHub Test Report
+        id: test-report-backend
+        if: success() || failure()
+        uses: phoenix-actions/test-reporting@v15
+        with:
+          name: Backend Tests Report
+          path: back/target/**/TEST*.xml
+          reporter: java-junit
+
+      # ------------------------------------------------------
       # Étape 4 : Analyse de qualité avec SonarCloud
       #  - Envoie les résultats de tests et de couverture
       #  - Nécessite les 4 secrets GitHub configurés :
       #    SONAR_TOKEN / SONAR_ORG / SONAR_PROJECT_KEY_BACK / SONAR_HOST_URL
+      #  - NB : sur des PR provenant d'un fork, les secrets ne sont pas exposés
       # ------------------------------------------------------
       - name: SonarCloud analysis
         run: |
@@ -65,6 +116,7 @@ jobs:
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+
 
   # ==========================================================
   # Job optionnel : vérifie le code du front-end (lint)
