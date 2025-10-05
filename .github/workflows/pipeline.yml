@@ -1,162 +1,67 @@
-name: Continuous Integration
+name: CI/CD Pipeline
 
-# ----------------------------------------------------------
-# Définition des événements qui déclenchent le workflow :
-#  - quand on pousse du code sur main
-#  - quand on crée une pull request vers main
-# ----------------------------------------------------------
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
-# ----------------------------------------------------------
-# Début de la section des "jobs" (tâches automatiques)
-# ----------------------------------------------------------
 jobs:
-  # ==========================================================
-  # CI du back-end
-  # ==========================================================
-  backend_ci:
-    name: Backend - Build, Test, Sonar
-    runs-on: ubuntu-latest  # Machine virtuelle Linux utilisée par GitHub
-
-    # Expose l'URL du rapport "Checks" (utile si on veut l'afficher dans un autre job)
-    outputs:
-      back-report-url: ${{ steps.test-report-backend.outputs.runHtmlUrl }}
-
-    # Définit que toutes les commandes se lanceront depuis le dossier /back
-    defaults:
-      run:
-        working-directory: back
+  backend-tests:
+    name: Backend - Tests & Coverage
+    runs-on: ubuntu-latest
 
     steps:
-      # ------------------------------------------------------
-      # Étape 1 : Récupère le code source depuis le repo GitHub
-      # ------------------------------------------------------
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      # ------------------------------------------------------
-      # Étape 2 : Installe Java 11 (le projet utilise Java 11)
-      # ------------------------------------------------------
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up Java 11
+        uses: actions/setup-java@v3
         with:
-          distribution: temurin
-          java-version: '11'  # Version Java spécifiée dans le pom.xml
-          cache: maven        # Cache Maven pour accélérer les builds
+          java-version: '11'
+          distribution: 'temurin'
 
-      # ------------------------------------------------------
-      # Étape 3 : Compile et lance les tests du back-end
-      #  - mvn clean verify => compile, exécute les tests
-      # ------------------------------------------------------
-      - name: Build & test (Maven)
-        run: mvn -B -q clean verify
-
-      # ------------------------------------------------------
-      # (AJOUT) Étape 3.1 : Uploader les rapports de tests Surefire (unitaires)
-      #  - Permet de consulter les rapports dans l'onglet "Actions", même si le job échoue
-      # ------------------------------------------------------
-      - name: Upload Surefire reports
-        uses: actions/upload-artifact@v4
+      - name: Cache Maven packages
+        uses: actions/cache@v3
         with:
-          name: surefire-reports
-          path: back/target/surefire-reports/
+          path: ~/.m2
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven
 
-      # ------------------------------------------------------
-      # (AJOUT) Étape 3.2 : Uploader les rapports Failsafe (tests d'intégration)
-      #  - Ignore l'étape si aucun rapport (ex : pas de tests d'intégration)
-      # ------------------------------------------------------
-      - name: Upload Failsafe reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: failsafe-reports
-          path: back/target/failsafe-reports/
-          if-no-files-found: ignore
+      - name: Run backend tests with JaCoCo
+        run: mvn clean verify
+        working-directory: back
 
-      # ------------------------------------------------------
-      # (AJOUT) Étape 3.3 : Uploader le rapport de couverture JaCoCo (HTML)
-      #  - Pratique pour ouvrir le détail de la couverture dans le navigateur
-      # ------------------------------------------------------
-      - name: Upload JaCoCo HTML
+      - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: back/target/site/jacoco
 
-      # ------------------------------------------------------
-      # (AJOUT) Étape 3.4 : Générer un rapport de tests "lisible" dans l'onglet Checks
-      #  - Parse les XML JUnit (Surefire/Failsafe) et fournit une URL (output)
-      #  - S'exécute même si les tests échouent, pour pouvoir consulter le rapport
-      #  - Option : on peut éviter de le lancer sur main si souhaité
-      # ------------------------------------------------------
-      - name: Generate GitHub Test Report
-        id: test-report-backend
-        if: success() || failure()
-        uses: phoenix-actions/test-reporting@v15
-        with:
-          name: Backend Tests Report
-          path: back/target/**/TEST*.xml
-          reporter: java-junit
-
-      # ------------------------------------------------------
-      # Étape 4 : Analyse de qualité avec SonarCloud
-      #  - Envoie les résultats de tests et de couverture
-      #  - Nécessite les 4 secrets GitHub configurés :
-      #    SONAR_TOKEN / SONAR_ORG / SONAR_PROJECT_KEY_BACK / SONAR_HOST_URL
-      #  - NB : sur des PR provenant d'un fork, les secrets ne sont pas exposés
-      # ------------------------------------------------------
-      - name: SonarCloud analysis
-        run: |
-          mvn -B -q sonar:sonar \
-            -Dsonar.organization=${{ secrets.SONAR_ORG }} \
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY_BACK }} \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-
-
-  # ==========================================================
-  # Job optionnel : vérifie le code du front-end (lint)
-  #     Ce job est "non bloquant" : même s’il échoue, la pipeline continue
-  # ==========================================================
-  frontend_lint:
-    name: Frontend - Lint (non bloquant)
+  frontend-tests:
+    name: Frontend - Tests & Coverage
     runs-on: ubuntu-latest
-    continue-on-error: true  # Ne bloque pas la pipeline s’il échoue
-
-    # Toutes les commandes se lancent depuis le dossier /front
-    defaults:
-      run:
-        working-directory: front
 
     steps:
-      # ------------------------------------------------------
-      # Étape 1 : Récupère le code du repo
-      # ------------------------------------------------------
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      # ------------------------------------------------------
-      # Étape 2 : Installe Node.js 18 pour exécuter npm
-      # ------------------------------------------------------
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: 18
 
-      # ------------------------------------------------------
-      # Étape 3 : Installe les dépendances du projet front
-      # ------------------------------------------------------
-      - name: Install deps
-        run: npm ci || npm install
+      - name: Install dependencies
+        run: npm ci
+        working-directory: front
 
-      # ------------------------------------------------------
-      # Étape 4 : Lance la commande de lint
-      #  - Vérifie la qualité du code front (erreurs de style, syntaxe, etc.)
-      #  - Si le projet n’a pas de script "lint", on ignore sans erreur
-      # ------------------------------------------------------
-      - name: Lint
-        run: npm run lint || echo "No lint script, skipping"
+      - name: Run Angular tests with coverage
+        run: npm run test -- --watch=false --code-coverage
+        working-directory: front
+
+      - name: Upload Angular coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: angular-coverage
+          path: front/coverage
