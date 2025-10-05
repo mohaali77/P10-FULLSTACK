@@ -1,0 +1,106 @@
+name: SonarQube Analysis
+
+# Ce workflow est déclenché lorsqu'il est appelé par un autre workflow
+on:
+  workflow_call:
+    # Secrets pour le workflow
+    secrets:
+      SONAR_ORGANIZATION:
+        required: true
+        description: 'SonarQube organization'
+      SONAR_TOKEN:
+        required: true
+        description: 'SonarQube token'
+      SONAR_HOST_URL:
+        required: true
+        description: 'SonarQube server URL'
+      SONAR_PROJECT_KEY:
+        required: true
+        description: 'SonarQube project key'
+
+# Définition des jobs à exécuter dans ce workflow
+jobs:
+
+  # Exécute l'analyse du projet avec SonarQube
+  analysis:
+    name: Frontend Analysis with SonarQube
+    # S'exécute sur un runner avec une version d'Ubuntu récente
+    runs-on: ubuntu-latest
+
+    # Étapes de ce job
+    steps:
+
+      # Étape 1 : Récupérer le code du dépôt avec Git
+      - uses: actions/checkout@v4
+        with:
+          # Récupère le code du dépôt avec l'historique complet
+          # pour une meilleure pertinence de l'analyse
+          fetch-depth: 0
+
+      # Étape 2 : Utiliser le cache de npm
+      - name: Cache Node Modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ github.ref_name }}
+          restore-keys: ${{ runner.os }}-node
+
+      # Étape 3 : Installer Node.js 18 et récupérer le cache de npm
+      - name: Use Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+
+      # Étape 4 : Installer les dépendances du projet
+      - name: Npm install dependencies
+        run: npm ci --no-audit --progress=false
+        working-directory: front
+
+      # Étape 5 : Compiler le frontend
+      - name: Build frontend
+        run: npm run build
+        working-directory: front
+
+      # Étape 6 : Tester le frontend
+      - name: Run frontend tests
+        run: npm run test:ci
+        working-directory: front
+
+      # Étape 7 : Utiliser le cache de SonarQube
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+
+      # Étape 8 - A : Analyser le code avec SonarQube (Pull Request)
+      - name: Analyze with SonarQube
+        uses: SonarSource/sonarqube-scan-action@v5
+        if: ${{ github.event_name == 'pull_request' || github.base_ref == 'refs/heads/release' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: front
+          args: >
+            --define sonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            --define sonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            --define sonar.host.url=${{ secrets.SONAR_HOST_URL }}
+            --define sonar.qualitygate.wait=true
+
+      # Étape 8 - B : Analyser le code avec SonarQube (Branch)
+      - name: Analyze with SonarQube
+        uses: SonarSource/sonarqube-scan-action@v5
+        if: ${{ github.event_name != 'pull_request' && github.base_ref != 'refs/heads/release' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: front
+          args: >
+            --define sonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            --define sonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            --define sonar.host.url=${{ secrets.SONAR_HOST_URL }}

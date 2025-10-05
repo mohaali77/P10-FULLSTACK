@@ -1,0 +1,183 @@
+# Ce workflow est utilisé pour construire et pousser les images Docker du projet
+# Il est déclenché par un autre workflow (workflow_call) et
+# utilise le cache GitHub Actions pour optimiser le processus de construction
+#
+# Paramètres :
+# - secrets pour l'authentification avec Docker Hub
+#
+# Jobs :
+# - build-backend : construit l'image Docker du backend
+# - build-frontend : construit l'image Docker du frontend
+# - push-images : pousse les images Docker vers Docker Hub si les builds sont réussis
+#
+
+name: Build and Push Docker Images
+
+# Ce workflow est déclenché lorsqu'il est appelé par un autre workflow
+on:
+  workflow_call:
+
+    # Paramètres pour le workflow
+    inputs:
+      tag:
+        type: string
+        required: true
+        description: 'The tag to use for the Docker images'
+
+    # Secrets pour le workflow
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
+        description: 'Docker Hub token'
+      DOCKERHUB_USERNAME:
+        required: true
+        description: 'Docker Hub username'
+
+# Définition des jobs à exécuter dans ce workflow
+jobs:
+
+  # Contruit l'image du backend et met le produit en cache (en utilisant le cache GitHub Actions)
+  build-backend:
+    name: Build Docker backend image
+    # S'exécute sur un runner avec une version d'Ubuntu récente
+    runs-on: ubuntu-latest
+
+    # Étapes de ce job
+    steps:
+
+      # Étape 1 : Récupérer le code du dépôt avec Git
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Récupère seulement le dernier commit
+          fetch-depth: 1
+
+      # Étape 2 : Installer Docker Buildx pour construire des images Docker
+      # avec le cache de GitHub Actions
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Étape 3 : Construire et mettre en cache l'image du backend
+      - name: Build and cache Spring Boot Backend image (Github Action Cache)
+        uses: docker/build-push-action@v6
+        with:
+          # Le contexte de build est le répertoire 'back'
+          context: back
+          # Le Dockerfile se trouve dans le répertoire 'back'
+          file: back/Dockerfile
+          # Ne pas pousser l'image vers un registre
+          push: false
+          # Tag de l'image à construire
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/bobapp-back:${{ inputs.tag }}
+          # Charge le cache depuis GitHub Actions pour ce commit (scope basé sur le SHA du commit)
+          cache-from: type=local,src=backend-build-cache-${{ github.sha }}
+          # Sauvegarde le cache vers GitHub Actions (mode max pour tout sauvegarder)
+          cache-to: type=local,dest=backend-build-cache-${{ github.sha }},mode=max
+
+
+  # Contruit l'image du frontend et met le produit en cache (en utilisant le cache GitHub Actions)
+  build-frontend:
+    name: Build Docker frontend image
+    # S'exécute sur un runner avec une version d'Ubuntu récente
+    runs-on: ubuntu-latest
+
+    # Étapes de ce job
+    steps:
+
+      # Étape 1 : Récupérer le code du dépôt avec Git
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Récupère seulement le dernier commit
+          fetch-depth: 1
+
+      # Étape 2 : Installer Docker Buildx pour construire des images Docker
+      # avec le cache de GitHub Actions
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Étape 3 : Construire et mettre en cache l'image du frontend
+      - name: Build and cache Angular Frontend image (GHA Cache)
+        uses: docker/build-push-action@v6
+        with:
+          # Le contexte de build est le répertoire 'front'
+          context: front
+          # Le Dockerfile se trouve dans le répertoire 'front'
+          file: front/Dockerfile
+          # On ne pousse pas l'image vers un registre, on construit seulement l'image
+          push: false
+          # Tag l'image contruite pour information
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/bobapp-front:${{ inputs.tag }}
+          # Charge le cache depuis GitHub Actions pour ce commit (scope basé sur le SHA du commit)
+          cache-from: type=local,src=frontend-build-cache-${{ github.sha }}
+          # Sauvegarde le cache vers GitHub Actions (mode max pour tout sauvegarder)
+          cache-to: type=local,dest=frontend-build-cache-${{ github.sha }},mode=max
+
+
+  # Envoie les images construites vers Docker Hub
+  # Ce job dépend de la réussite des jobs 'build-backend' et 'build-frontend'
+  push-images:
+    name: Push Docker images to Docker Hub
+    # S'exécute sur un runner avec une version d'Ubuntu récente
+    runs-on: ubuntu-latest # S'exécute sur un runner Ubuntu récent
+    # Requiert que les jobs 'build-backend' et 'build-frontend' soient terminés avec succès
+    needs: [build-backend, build-frontend]
+
+    # Étapes de ce job
+    steps:
+
+      # Étape 1 : Récupérer le code du dépôt avec Git
+      # Cette étape est requis par `docker/build-push-action` pour accéder aux Dockerfiles
+      # et aux répertoires (back, front)
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Récupère seulement le dernier commit
+          fetch-depth: 1
+        # Le checkout est nécessaire ici pour accéder aux Dockerfiles et aux répertoires (back, front)
+
+      # Étape 2 : Docker Buildx
+      # Installe Docker Buildx pour construire des images Docker
+      # avec le cache de GitHub Actions
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Étape 3 : Se connecter à Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          # Déconnexion à la fin du job
+          # pour éviter de laisser des informations d'identification sur le runner
+          logout: true
+
+      # Étape 4 : Pousser l'image du backend
+      - name: Push Spring Boot Backend image
+        uses: docker/build-push-action@v5
+        with:
+          # Le contexte de build est le répertoire 'back'
+          context: back
+          # Le Dockerfile se trouve dans le répertoire 'back'
+          file: back/Dockerfile
+          # On pousse l'image vers le registre
+          push: true
+          # Tag de l'image à pousser
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/bobapp-back:${{ inputs.tag }}
+          # On réutilise le cache du job précédent (Cache de GitHub Actions)
+          cache-from: type=local,src=backend-build-cache-${{ github.sha }}
+
+      # Étape 4 : Pousser l'image du frontend
+      - name: Push Angular Frontend image
+        uses: docker/build-push-action@v5 # Utilise l'action Docker Build and Push
+        with:
+          # Le contexte de build est le répertoire 'front'
+          context: front
+          # Le Dockerfile se trouve dans le répertoire 'front'
+          file: front/Dockerfile
+          # On pousse l'image vers le registre
+          push: true
+          # Tag de l'image à pousser
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/bobapp-front:${{ inputs.tag }}
+          # On réutilise le cache du job précédent (Cache de GitHub Actions)
+          cache-from: type=local,src=frontend-build-cache-${{ github.sha }}
