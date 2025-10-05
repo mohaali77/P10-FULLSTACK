@@ -96,3 +96,40 @@ jobs:
             -Dsonar.sources=src \
             -Dsonar.exclusions=**/node_modules/**,**/*.spec.ts \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
+
+    docker-build-push:
+    name: Docker Build & Push to Docker Hub
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------
+      # Étape 1 : Récupère le code du dépôt
+      # ------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+        needs: [backend-tests, frontend-tests]  #Ne s'exécute que si les deux passent
+      # ------------------------------------------------------
+      # Étape 2 : Connexion à Docker Hub via les secrets GitHub
+      # ------------------------------------------------------
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ------------------------------------------------------
+      # Étape 3 : Build et push de l'image back-end
+      # ------------------------------------------------------
+      - name: Build & push backend image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-back:latest ./back
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-back:latest
+
+      # ------------------------------------------------------
+      # Étape 4 : Build et push de l'image front-end
+      # ------------------------------------------------------
+      - name: Build & push frontend image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-front:latest ./front
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-front:latest
