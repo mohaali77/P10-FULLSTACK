@@ -81,6 +81,7 @@ jobs:
   # Installe le scanner Sonar pour le front
       - name: Install Sonar Scanner
         run: npm install -g sonar-scanner
+        working-directory: front
 
       # Lance l'analyse SonarCloud (front)
       - name: Run SonarCloud analysis (frontend)
