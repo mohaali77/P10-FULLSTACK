@@ -135,7 +135,7 @@ jobs:
   # PARTIE FRONTEND - Tests Angular + couverture + analyse SonarCloud
   # ==================================================================
   frontend-tests:
-    needs: detect-
+    needs: detect-changes
     # Exécuté uniquement si des fichiers dans /front ont changé
     if: needs.detect-changes.outputs.front == 'true'
     name: Frontend - Tests & Coverage
