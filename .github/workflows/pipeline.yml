@@ -12,14 +12,57 @@ on:
     branches: [ main ]
 
 jobs:
+
+  # ==================================================================
+  # JOB "detect-changes"
+  # Objectif : détecter automatiquement les fichiers modifiés
+  # ==================================================================
+  detect-changes:
+
+    runs-on: ubuntu-latest
+
+    # --------------------------------------------------------------
+    # On définit ici les valeurs de sortie
+    # - back  : sera "true" si des fichiers du dossier /back ont changé
+    # - front : sera "true" si des fichiers du dossier /front ont changé
+    # Ces valeurs seront ensuite utilisées dans les autres jobs
+    # --------------------------------------------------------------
+    outputs:
+      back: ${{ steps.filter.outputs.back }}
+      front: ${{ steps.filter.outputs.front }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # --------------------------------------------------------------
+      # Détecter les changements de fichiers
+      # --------------------------------------------------------------
+      - name: Detect changed paths          # Nom lisible de l’étape
+        id: filter                          # Identifiant (pour réutiliser les résultats)
+        uses: dorny/paths-filter@v3         # Action GitHub qui compare les chemins modifiés
+        with:
+          # ----------------------------------------------------------
+          # Filtres à surveiller :
+          # - "back/**"  : tous les fichiers du dossier back
+          # - "front/**" : tous les fichiers du dossier front
+          # Si un commit modifie un fichier dans ces dossiers,
+          # l’action retournera back=true ou front=true
+          # ----------------------------------------------------------
+          filters: |
+            back:
+              - 'back/**'
+            front:
+              - 'front/**'
+
   # ==================================================================
   # PARTIE BACKEND - Tests unitaires + générer rapport de couverture + analyse SonarCloud
   # ==================================================================
   backend-tests:
     name: Backend - Tests & Coverage
     runs-on: ubuntu-latest   # Hébergement sur un serveur linux
-    if: hashFiles('back/**') != ''   # Se lance uniquement si des fichiers du dossier back ont changé
-
+    needs: detect-changes
+    # Exécuté uniquement si des fichiers dans /back ont changé
+    if: needs.detect-changes.outputs.back == 'true'
 
     steps:
       # --------------------------------------------------------------
@@ -92,9 +135,11 @@ jobs:
   # PARTIE FRONTEND - Tests Angular + couverture + analyse SonarCloud
   # ==================================================================
   frontend-tests:
+    needs: detect-
+    # Exécuté uniquement si des fichiers dans /front ont changé
+    if: needs.detect-changes.outputs.front == 'true'
     name: Frontend - Tests & Coverage
     runs-on: ubuntu-latest
-    if: hashFiles('front/**') != ''   # Se lance uniquement si des fichiers du dossier back ont changé
 
     steps:
       # --------------------------------------------------------------
@@ -176,7 +221,7 @@ jobs:
     # Attend la réussite des jobs de tests (back + front)
     # cela garantit que seules des versions validées sont poussées
     # ----------------------------------------------------------------
-    needs: [backend-tests, frontend-tests]
+    needs: [detect-changes, backend-tests, frontend-tests]
 
     steps:
       # --------------------------------------------------------------
@@ -204,7 +249,7 @@ jobs:
       # - Le repo public doit exister sur Docker Hub
       # --------------------------------------------------------------
       - name: Build & push backend image
-        if: hashFiles('back/**') != ''
+        if: needs.detect-changes.outputs.back == 'true'
         run: |
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-back:latest ./back
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-back:latest
@@ -216,7 +261,7 @@ jobs:
       # - Tag : <username>/p10-fullstack-front:latest
       # --------------------------------------------------------------
       - name: Build & push frontend image
-        if: hashFiles('front/**') != ''
+        if: needs.detect-changes.outputs.front == 'true'
         run: |
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-front:latest ./front
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-front:latest
