@@ -222,6 +222,9 @@ jobs:
     # cela garantit que seules des versions validées sont poussées
     # ----------------------------------------------------------------
     needs: [detect-changes,backend-tests, frontend-tests]
+    # Exécute le job Docker uniquement si le back OU le front a été modifié
+    if: |
+      needs.detect-changes.outputs.back == 'true' || needs.detect-changes.outputs.front == 'true'
 
     steps:
       # --------------------------------------------------------------
