@@ -15,7 +15,6 @@ public class JokeController {
 
     JokeController(JokeService jokeService) {
         this.jokeService = jokeService;
-
     }
 
     @GetMapping()
