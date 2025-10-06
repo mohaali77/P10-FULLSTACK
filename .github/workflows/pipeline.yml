@@ -1,5 +1,10 @@
 name: Pipeline
 
+# --------------------------------------------------------------------
+# Déclencheurs :
+# - A chaque push sur la branche main
+# - A chaque ouverture/mise à jour d’une pull request vers main
+# --------------------------------------------------------------------
 on:
   push:
     branches: [ main ]
@@ -7,20 +12,35 @@ on:
     branches: [ main ]
 
 jobs:
+  # ==================================================================
+  # PARTIE BACKEND - Tests unitaires + générer rapport de couverture + analyse SonarCloud
+  # ==================================================================
   backend-tests:
     name: Backend - Tests & Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest   # Hébergement sur un serveur linux
 
     steps:
+      # --------------------------------------------------------------
+      # Récupère le code du dépôt
+      # --------------------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Java 17
+      # --------------------------------------------------------------
+      # Installe Java 25 sur le serveur
+      # - l'appli utilise Java 11, mais java 25 est requis par les versions récentes de Sonar
+      # --------------------------------------------------------------
+      - name: Set up Java 25
         uses: actions/setup-java@v3
         with:
-          java-version: '17'
+          java-version: '25'
           distribution: 'temurin'
 
+      # --------------------------------------------------------------
+      # Met en cache les dépendances Maven pour accélérer les builds.
+      # Si le fichier pom.xml change, le cache est régénéré automatiquement.
+      # Cela évite de retélécharger toutes les librairies à chaque exécution.
+      # --------------------------------------------------------------
       - name: Cache Maven packages
         uses: actions/cache@v3
         with:
@@ -29,17 +49,33 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven
 
+      # --------------------------------------------------------------
+      # Lance la compilation et les tests du back-end avec Maven.
+      # La commande 'mvn clean verify' exécute les tests et génère
+      # le rapport de couverture de code JaCoCo dans le dossier /back.
+      # --------------------------------------------------------------
       - name: Run backend tests with JaCoCo
         run: mvn clean verify
         working-directory: back
 
+      # --------------------------------------------------------------
+      # Archive le rapport de couverture JaCoCo dans la section "artifact" de l'onglet Actions du repo
+      # Cela permet de le télécharger ou le consulter après l’exécution.
+      # --------------------------------------------------------------
       - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: back/target/site/jacoco
 
-      # Lance l'analyse SonarCloud (utilise le rapport JaCoCo généré par les tests)
+      # --------------------------------------------------------------
+      # Analyse SonarCloud (backend)
+      # - Utilise le plugin Maven sonar:sonar
+      # - Envoie à SonarCloud :
+      #   * l’organisation, la clé projet, l’URL du serveur
+      #   * le token d’authentification (secrets GitHub)
+      #   * le chemin du rapport JaCoCo XML (couverture)
+      # --------------------------------------------------------------
       - name: Run SonarCloud analysis (backend)
         working-directory: back
         run: |
@@ -50,43 +86,74 @@ jobs:
             -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
 
-
+  # ==================================================================
+  # PARTIE FRONTEND - Tests Angular + couverture + analyse SonarCloud
+  # ==================================================================
   frontend-tests:
     name: Frontend - Tests & Coverage
     runs-on: ubuntu-latest
 
     steps:
+      # --------------------------------------------------------------
+      # Récupère le code
+      # --------------------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # --------------------------------------------------------------
+      # Installe Node.js pour Angular/Karma/Jasmine
+      # --------------------------------------------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 22
 
+      # --------------------------------------------------------------
+      # Install propre des dépendances front (via package-lock.json)
+      # --------------------------------------------------------------
       - name: Install dependencies
         run: npm ci
         working-directory: front
 
+      # --------------------------------------------------------------
+      # Lance les tests Angular + génère la couverture
+      # - --watch=false : exécution non interactive (CI)
+      # - --code-coverage : crée coverage/lcov.info et le rapport HTML
+      # - ⚠️ En CI, Karma doit utiliser Chrome Headless
+      #   (configuré dans karma.conf ou via --browsers=ChromeHeadless)
+      # --------------------------------------------------------------
       - name: Run Angular tests with coverage
         run: npm run test -- --watch=false --code-coverage
         working-directory: front
 
+      # --------------------------------------------------------------
+      # Archive le rapport de couverture Angular en artifact
+      # - Le HTML (lcov-report) permet d’inspecter les fichiers couverts
+      # --------------------------------------------------------------
       - name: Upload Angular coverage report
         uses: actions/upload-artifact@v4
         with:
           name: angular-coverage
           path: front/coverage
 
-  # Installe le scanner Sonar pour le front
+      # --------------------------------------------------------------
+      # Installe le scanner Sonar côté front (CLI JavaScript)
+      # - Nécessaire car le front n'utilise pas Maven
+      # --------------------------------------------------------------
       - name: Install Sonar Scanner
         run: npm install -g sonar-scanner
         working-directory: front
 
-      # Lance l'analyse SonarCloud (front)
+      # --------------------------------------------------------------
+      # Analyse SonarCloud (frontend)
+      # - Déclare la source à analyser : 'src'
+      # - Exclut node_modules et les fichiers de tests (*.spec.ts)
+      # - Fournit le chemin du rapport de couverture : coverage/lcov.info
+      # - ⚠️ Les mêmes secrets Sonar que pour le back doivent exister,
+      #   avec la clé projet front : SONAR_PROJECT_KEY_FRONT
+      # --------------------------------------------------------------
       - name: Run SonarCloud analysis (frontend)
         working-directory: front
-
         run: |
           sonar-scanner \
             -Dsonar.organization=${{ secrets.SONAR_ORG }} \
@@ -97,31 +164,53 @@ jobs:
             -Dsonar.exclusions=**/node_modules/**,**/*.spec.ts \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
-
+  # ==================================================================
+  # JOB 3 : DOCKER - Build & Push des images (back + front) sur Docker Hub
+  # ==================================================================
   docker-build-push:
     name: Docker Build & Push to Docker Hub
     runs-on: ubuntu-latest
-    needs: [backend-tests, frontend-tests]  #Ne s'exécute que si les deux passent
 
+    # ----------------------------------------------------------------
+    # Ce job attend la réussite des jobs de tests (back + front)
+    # → garantit que seules des versions validées sont poussées
+    # ----------------------------------------------------------------
+    needs: [backend-tests, frontend-tests]
 
     steps:
-
+      # --------------------------------------------------------------
+      # Récupère le code
+      # --------------------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # --------------------------------------------------------------
+      # Connexion à Docker Hub avec les secrets du repo :
+      # - DOCKERHUB_USERNAME : ton identifiant Docker Hub
+      # - DOCKERHUB_TOKEN    : Access Token avec droits Read & Write
+      # --------------------------------------------------------------
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-
+      # --------------------------------------------------------------
+      # Build & Push de l'image BACKEND
+      # - Construit à partir de /back (présence d'un Dockerfile)
+      # - Tag : <username>/p10-fullstack-back:latest
+      # - ⚠️ Le repo public doit exister sur Docker Hub
+      # --------------------------------------------------------------
       - name: Build & push backend image
         run: |
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-back:latest ./back
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-back:latest
 
-
+      # --------------------------------------------------------------
+      # Build & Push de l'image FRONTEND
+      # - Construit à partir de /front (présence d'un Dockerfile)
+      # - Tag : <username>/p10-fullstack-front:latest
+      # --------------------------------------------------------------
       - name: Build & push frontend image
         run: |
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-front:latest ./front
