@@ -221,7 +221,7 @@ jobs:
     # Attend la réussite des jobs de tests (back + front)
     # cela garantit que seules des versions validées sont poussées
     # ----------------------------------------------------------------
-    needs: [detect-changes, backend-tests, frontend-tests]
+    needs: [detect-changes,backend-tests, frontend-tests]
 
     steps:
       # --------------------------------------------------------------
