@@ -195,7 +195,7 @@ jobs:
 
       # --------------------------------------------------------------
       # Build & Push de l'image BACKEND
-      # - Construit à partir de /back (présence d'un Dockerfile)
+      # - Construit à partir de /back 
       # - Tag : <username>/p10-fullstack-back:latest
       # - Le repo public doit exister sur Docker Hub
       # --------------------------------------------------------------
@@ -206,7 +206,7 @@ jobs:
 
       # --------------------------------------------------------------
       # Build & Push de l'image FRONTEND
-      # - Construit à partir de /front (présence d'un Dockerfile)
+      # - Construit à partir de /front 
       # - Tag : <username>/p10-fullstack-front:latest
       # --------------------------------------------------------------
       - name: Build & push frontend image
