@@ -18,6 +18,8 @@ jobs:
   backend-tests:
     name: Backend - Tests & Coverage
     runs-on: ubuntu-latest   # Hébergement sur un serveur linux
+    if: hashFiles('back/**') != ''   # Se lance uniquement si des fichiers du dossier back ont changé
+
 
     steps:
       # --------------------------------------------------------------
@@ -92,6 +94,7 @@ jobs:
   frontend-tests:
     name: Frontend - Tests & Coverage
     runs-on: ubuntu-latest
+    if: hashFiles('front/**') != ''   # Se lance uniquement si des fichiers du dossier back ont changé
 
     steps:
       # --------------------------------------------------------------
@@ -165,23 +168,15 @@ jobs:
   # ==================================================================
   # PARTIE DOCKER - Build & Push des images (back + front) sur Docker Hub
   # ==================================================================
-
-  # ================================================================
-  # DOCKER BACK - Build & Push de l'image backend
-  # ================================================================
-  docker-back:
-    name: Docker (Back) - Build & Push
+  docker-build-push:
+    name: Docker Build & Push to Docker Hub
     runs-on: ubuntu-latest
 
-    # ================================================================
-    # Ce job dépend :
-    # - De "changes" (pour savoir si le dossier /back a été modifié)
-    # - De "backend-tests" (pour ne déployer que si les tests réussissent)
-    # ================================================================
-    needs: [changes, backend-tests]
-
-    # Ce job ne s’exécute QUE si des fichiers dans /back ont changé
-    if: needs.changes.outputs.back == 'true'
+    # ----------------------------------------------------------------
+    # Attend la réussite des jobs de tests (back + front)
+    # cela garantit que seules des versions validées sont poussées
+    # ----------------------------------------------------------------
+    needs: [backend-tests, frontend-tests]
 
     steps:
       # --------------------------------------------------------------
@@ -203,57 +198,27 @@ jobs:
 
       # --------------------------------------------------------------
       # Build & Push de l'image BACKEND
-      # - Construit à partir de /back
-      # - Tag : <username>/p10-fullstack-front:latest
+      # Exécuté uniquement si des fichiers dans /back ont changé
+      # - Construit à partir de /back 
+      # - Tag : <username>/p10-fullstack-back:latest
+      # - Le repo public doit exister sur Docker Hub
       # --------------------------------------------------------------
       - name: Build & push backend image
+        if: hashFiles('back/**') != ''
         run: |
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-back:latest ./back
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-back:latest
 
-
-  # ================================================================
-  # DOCKER FRONT - Build & Push de l'image frontend
-  # ================================================================
-  docker-front:
-    name: Docker (Front) - Build & Push
-    runs-on: ubuntu-latest
-
-    # ================================================================
-    # Ce job dépend :
-    # - du job "changes" (pour savoir si le dossier /front a été modifié)
-    # - du job "frontend-tests" (pour ne déployer que si les tests réussissent)
-    # ================================================================
-
-    needs: [changes, frontend-tests]
-
-    # Ce job ne s’exécute QUE si des fichiers dans /front ont changé
-    if: needs.changes.outputs.front == 'true'
-
-    steps:
-      # --------------------------------------------------------------
-      # Récupère le code
-      # --------------------------------------------------------------
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # --------------------------------------------------------------
-      # Connexion à Docker Hub avec les secrets du repo :
-      # - DOCKERHUB_USERNAME : ton identifiant Docker Hub
-      # - DOCKERHUB_TOKEN    : Access Token avec droits Read & Write
-      # --------------------------------------------------------------
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       # --------------------------------------------------------------
       # Build & Push de l'image FRONTEND
-      # - Construit à partir de /front
+      # Exécuté uniquement si des fichiers dans /front ont changé
+      # - Construit à partir de /front 
       # - Tag : <username>/p10-fullstack-front:latest
       # --------------------------------------------------------------
       - name: Build & push frontend image
+        if: hashFiles('front/**') != ''
         run: |
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-front:latest ./front
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/p10-fullstack-front:latest
+
+
