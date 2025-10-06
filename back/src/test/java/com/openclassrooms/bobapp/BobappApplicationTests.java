@@ -8,6 +8,7 @@ class BobappApplicationTests {
 
 	@Test
 	void contextLoads() {
+		assert 1 == 2 : "Échec volontaire du test (1 != 2)";
 	}
 
 }
