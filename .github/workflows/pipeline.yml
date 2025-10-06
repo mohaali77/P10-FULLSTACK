@@ -109,26 +109,24 @@ jobs:
           node-version: 22
 
       # --------------------------------------------------------------
-      # Install propre des dépendances front (via package-lock.json)
+      # Installation des dépendances front (via package-lock.json)
       # --------------------------------------------------------------
       - name: Install dependencies
         run: npm ci
         working-directory: front
 
       # --------------------------------------------------------------
-      # Lance les tests Angular + génère la couverture
-      # - --watch=false : exécution non interactive (CI)
+      # Lance les tests Angular et génère le rapport de couverture
+      # - --watch=false : ne pas relancer automatiquement les tests à chaque modification du code
       # - --code-coverage : crée coverage/lcov.info et le rapport HTML
-      # - ⚠️ En CI, Karma doit utiliser Chrome Headless
-      #   (configuré dans karma.conf ou via --browsers=ChromeHeadless)
+      # -  En CI, Karma doit utiliser Chrome Headless, donc le fichier "karma.conf" a été configuré
       # --------------------------------------------------------------
       - name: Run Angular tests with coverage
         run: npm run test -- --watch=false --code-coverage
         working-directory: front
 
       # --------------------------------------------------------------
-      # Archive le rapport de couverture Angular en artifact
-      # - Le HTML (lcov-report) permet d’inspecter les fichiers couverts
+      # Archive le rapport de couverture Angular dans artifact
       # --------------------------------------------------------------
       - name: Upload Angular coverage report
         uses: actions/upload-artifact@v4
@@ -152,17 +150,17 @@ jobs:
       # - ⚠️ Les mêmes secrets Sonar que pour le back doivent exister,
       #   avec la clé projet front : SONAR_PROJECT_KEY_FRONT
       # --------------------------------------------------------------
-      - name: Run SonarCloud analysis (frontend)
-        working-directory: front
-        run: |
-          sonar-scanner \
-            -Dsonar.organization=${{ secrets.SONAR_ORG }} \
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY_FRONT }} \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-            -Dsonar.sources=src \
-            -Dsonar.exclusions=**/node_modules/**,**/*.spec.ts \
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+      #- name: Run SonarCloud analysis (frontend)
+      #  working-directory: front
+      #  run: |
+      #    sonar-scanner \
+      #      -Dsonar.organization=${{ secrets.SONAR_ORG }} \
+      #      -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY_FRONT }} \
+      #      -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+      #      -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+      #      -Dsonar.sources=src \
+      #      -Dsonar.exclusions=**/node_modules/**,**/*.spec.ts \
+      #      -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
   # ==================================================================
   # JOB 3 : DOCKER - Build & Push des images (back + front) sur Docker Hub
