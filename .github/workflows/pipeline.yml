@@ -147,7 +147,7 @@ jobs:
       # - Déclare la source à analyser : 'src'
       # - Exclut node_modules et les fichiers de tests (*.spec.ts)
       # - Fournit le chemin du rapport de couverture : coverage/lcov.info
-      # - ⚠️ Les mêmes secrets Sonar que pour le back doivent exister,
+      # - Les mêmes secrets Sonar que pour le back doivent exister,
       #   avec la clé projet front : SONAR_PROJECT_KEY_FRONT
       # --------------------------------------------------------------
       - name: Run SonarCloud analysis (frontend)
@@ -163,15 +163,15 @@ jobs:
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
   # ==================================================================
-  # JOB 3 : DOCKER - Build & Push des images (back + front) sur Docker Hub
+  # PARTIE DOCKER - Build & Push des images (back + front) sur Docker Hub
   # ==================================================================
   docker-build-push:
     name: Docker Build & Push to Docker Hub
     runs-on: ubuntu-latest
 
     # ----------------------------------------------------------------
-    # Ce job attend la réussite des jobs de tests (back + front)
-    # → garantit que seules des versions validées sont poussées
+    # Attend la réussite des jobs de tests (back + front)
+    # cela garantit que seules des versions validées sont poussées
     # ----------------------------------------------------------------
     needs: [backend-tests, frontend-tests]
 
@@ -197,7 +197,7 @@ jobs:
       # Build & Push de l'image BACKEND
       # - Construit à partir de /back (présence d'un Dockerfile)
       # - Tag : <username>/p10-fullstack-back:latest
-      # - ⚠️ Le repo public doit exister sur Docker Hub
+      # - Le repo public doit exister sur Docker Hub
       # --------------------------------------------------------------
       - name: Build & push backend image
         run: |
